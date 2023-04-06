@@ -10,11 +10,49 @@
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from PyQt5 import QtCore, QtGui, QtWidgets
+import cv2
+
+import ellipseFitting as ef
+import tencent_ocr as ocr
+
+flag = False
+
+
+# class PreviewGraphicsView(QtWidgets.QGraphicsView):
+#     def __init__(self, parent=None):
+#         super().__init__(parent)
+#         self.pixmap = None
+#         self.scene = QtWidgets.QGraphicsScene(self)
+#         self.pixmap_item = None
+#
+#     # def set_image(self, image_path):
+#     #     # 加载图片并显示
+#     #     pixmap = QtGui.QPixmap(image_path)
+#     #     self.pixmap_item = QtWidgets.QGraphicsPixmapItem(pixmap)
+#     #     self.scene.addItem(self.pixmap_item)
+#     #     self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
+#     #     self.show()
+#
+#     def mousePressEvent(self, event):
+#         if event.button() == QtCore.Qt.RightButton:
+#             # 加载图片并显示
+#             self.pixmap = QtGui.QPixmap("preview.jpg")
+#             self.pixmap_item = QtWidgets.QGraphicsPixmapItem(self.pixmap)
+#             self.setSceneRect(self.pixmap.rect())
+#             self.scene.addItem(self.pixmap_item)
+#             self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
+#             # flag -= 1
+#             event.accept()
+#         else:
+#             super().mousePressEvent(event)
+
 
 class CustomGraphicsView(QtWidgets.QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
-
+        self.center = None
+        self.detected_text = None
         # 创建场景和画笔
         self._scene = QtWidgets.QGraphicsScene(self)
         self.setScene(self._scene)
@@ -33,11 +71,24 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
         self.setRenderHint(QtGui.QPainter.Antialiasing)  # 设置反锯齿渲染
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)  # 设置变换锚点为鼠标位置
 
+    # 自定义信号
+    rectSelected = QtCore.pyqtSignal()
+
+    def get_text(self):
+        return self.detected_text
+
+    def get_coordinate(self):
+        x = self.center[0] + self._start_pos.x()
+        y = self.center[1] + self._start_pos.y()
+        return x, y
+
     def set_image(self, image_path):
         # 加载图片并显示
         pixmap = QtGui.QPixmap(image_path)
         self._pixmap_item = QtWidgets.QGraphicsPixmapItem(pixmap)
         self._scene.addItem(self._pixmap_item)
+        global flag
+        flag = True
         # self.fitInView(self._pixmap_item, QtCore.Qt.KeepAspectRatio)
 
     def wheelEvent(self, event):
@@ -45,29 +96,35 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
         self.scale(factor, factor)  # 缩放视图
 
     def mousePressEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
+        global flag
+        if event.button() == QtCore.Qt.LeftButton and flag:
             # 记录开始点
             self.o_start_pos = event.pos()
             self._start_pos = self.mapToScene(event.pos())
             event.accept()
-        elif event.buttons() == QtCore.Qt.RightButton:
+        elif event.buttons() == QtCore.Qt.RightButton and flag:
             self._scene.removeItem(self._rect_item)
             rect = self._rect_item.mapRectToScene(self.o_rect)
             pixmap = self.scene().views()[0].grab(rect.toRect())
-            # # 将 pixmap 显示出来
-            # pixmap_item = QtWidgets.QGraphicsPixmapItem(pixmap)
-            # self.scene().addItem(pixmap_item)
-            pixmap.save('test_res.jpg')
 
+            filename = "sub_pic.jpg"
+            pixmap.save(filename)
+            testimg = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+            base64_data = ocr.image_to_base64(filename)
+            self.center = ef.fit_ellipse(testimg)
+            # print(self.center)
+            # self.detected_text = ocr.tencentOCR(base64_data)  
             # 重置矩形开始点和当前矩形
             self._start_pos = None
             self._rect_item = None
+            self.rectSelected.emit()
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == QtCore.Qt.LeftButton:
+        global flag
+        if event.buttons() == QtCore.Qt.LeftButton and flag:
             # 绘制矩形
             if not self._rect_item:
                 self._rect_item = QtWidgets.QGraphicsRectItem()
@@ -84,47 +141,6 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
 
         else:
             super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == QtCore.Qt.LeftButton:
-            print(self.rect.width())
-            print(self.rect)
-            print(str(self._start_pos.x()) + ", " + str(self._start_pos.y()))
-            # self._scene.removeItem(self._rect_item)
-            # # 重置矩形开始点和当前矩形
-            # self._start_pos = None
-            # self._rect_item = None
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
-
-    # def mousePressEvent(self, event):
-    #     self.flag = True
-    #     self.x0 = event.x()
-    #     self.y0 = event.y()
-    #     print(str(self.x0) + ", " + str(self.y0))
-    #
-    # def mouseReleaseEvent(self, event):
-    #     self.flag = False
-    #
-    # def mouseMoveEvent(self, event):
-    #     if self.flag:
-    #         self.x1 = event.x()
-    #         self.y1 = event.y()
-    #         self.update()
-    #     else:
-    #         super().mouseMoveEvent(event)
-
-    # def paintEvent(self, event):
-    #     super().paintEvent(event)
-    #     rect = QtCore.QRect(self.x0, self.y0, abs(self.x1 - self.x0), abs(self.y1 - self.y0))
-    #     painter = QtGui.QPainter(self)
-    #     painter.setPen(QtGui.QPen(QtCore.Qt.red, 1, QtCore.Qt.SolidLine))
-    #     painter.drawRect(rect)
-    #
-    #     pqscreen = QtGui.QGuiApplication.primaryScreen()
-    #     pixmap2 = pqscreen.grabWindow(self.winId(), self.x0, self.y0, abs(self.x1 - self.x0), abs(self.y1 - self.y0))
-    #     pixmap2.save('555.jpg')
 
 
 class Ui_MainWindow(object):
@@ -165,7 +181,6 @@ class Ui_MainWindow(object):
         self.actionNew.setObjectName("actionNew")
         self.actionOpen = QtWidgets.QAction(MainWindow)
         self.actionOpen.setObjectName("actionOpen")
-        self.menuFile.addAction(self.actionNew)
         self.menuFile.addAction(self.actionOpen)
         self.menubar.addAction(self.menuFile.menuAction())
 
