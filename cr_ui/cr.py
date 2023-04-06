@@ -113,7 +113,7 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
             base64_data = ocr.image_to_base64(filename)
             self.center = ef.fit_ellipse(testimg)
             # print(self.center)
-            # self.detected_text = ocr.tencentOCR(base64_data)  
+            # self.detected_text = ocr.tencentOCR(base64_data)
             # 重置矩形开始点和当前矩形
             self._start_pos = None
             self._rect_item = None
