@@ -5,6 +5,8 @@ from tencentcloud.common.profile.http_profile import HttpProfile
 from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
 from tencentcloud.ocr.v20181119 import ocr_client, models
 import base64
+
+
 def tencentOCR(base64img):
     try:
         # 实例化一个认证对象，入参需要传入腾讯云账户 SecretId 和 SecretKey，此处还需注意密钥对的保密
@@ -21,6 +23,7 @@ def tencentOCR(base64img):
         # 实例化要请求产品的client对象,clientProfile是可选的
         client = ocr_client.OcrClient(cred, "ap-shanghai", clientProfile)
 
+        print("实例化对象")
         # 实例化一个请求对象,每个接口都会对应一个request对象
         req = models.GeneralBasicOCRRequest()
         params = {
@@ -32,13 +35,15 @@ def tencentOCR(base64img):
         resp = client.GeneralBasicOCR(req)
         # 输出json格式的字符串回包
         res = resp.to_json_string()
-        dic = json.loads(res)
+        print(res)
+        dict = json.loads(res)
         detected_text = dict['TextDetections'][0]['DetectedText']
+        print(detected_text)
         return detected_text
-
 
     except TencentCloudSDKException as err:
         print(err)
+
 
 def image_to_base64(file_path):
     # image转base64

@@ -10,49 +10,21 @@
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from PyQt5 import QtCore, QtGui, QtWidgets
 import cv2
 
 import ellipseFitting as ef
-import tencent_ocr as ocr
+
 
 flag = False
-
-
-# class PreviewGraphicsView(QtWidgets.QGraphicsView):
-#     def __init__(self, parent=None):
-#         super().__init__(parent)
-#         self.pixmap = None
-#         self.scene = QtWidgets.QGraphicsScene(self)
-#         self.pixmap_item = None
-#
-#     # def set_image(self, image_path):
-#     #     # 加载图片并显示
-#     #     pixmap = QtGui.QPixmap(image_path)
-#     #     self.pixmap_item = QtWidgets.QGraphicsPixmapItem(pixmap)
-#     #     self.scene.addItem(self.pixmap_item)
-#     #     self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
-#     #     self.show()
-#
-#     def mousePressEvent(self, event):
-#         if event.button() == QtCore.Qt.RightButton:
-#             # 加载图片并显示
-#             self.pixmap = QtGui.QPixmap("preview.jpg")
-#             self.pixmap_item = QtWidgets.QGraphicsPixmapItem(self.pixmap)
-#             self.setSceneRect(self.pixmap.rect())
-#             self.scene.addItem(self.pixmap_item)
-#             self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
-#             # flag -= 1
-#             event.accept()
-#         else:
-#             super().mousePressEvent(event)
 
 
 class CustomGraphicsView(QtWidgets.QGraphicsView):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.center = None
-        self.detected_text = None
+        self.center_list = None
+        self.factor = None
+        self.scene_origin = None
+        self.leftop = None
         # 创建场景和画笔
         self._scene = QtWidgets.QGraphicsScene(self)
         self.setScene(self._scene)
@@ -74,12 +46,9 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
     # 自定义信号
     rectSelected = QtCore.pyqtSignal()
 
-    def get_text(self):
-        return self.detected_text
-
     def get_coordinate(self):
-        x = self.center[0] + self._start_pos.x()
-        y = self.center[1] + self._start_pos.y()
+        x = self.center_list[0] + self.leftop.x()
+        y = self.center_list[1] + self.leftop.y()
         return x, y
 
     def set_image(self, image_path):
@@ -92,8 +61,8 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
         # self.fitInView(self._pixmap_item, QtCore.Qt.KeepAspectRatio)
 
     def wheelEvent(self, event):
-        factor = 1.2 ** (event.angleDelta().y() / 240)  # 计算缩放因子
-        self.scale(factor, factor)  # 缩放视图
+        self.factor = 1.2 ** (event.angleDelta().y() / 240)  # 计算缩放因子
+        self.scale(self.factor, self.factor)  # 缩放视图
 
     def mousePressEvent(self, event):
         global flag
@@ -101,23 +70,40 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
             # 记录开始点
             self.o_start_pos = event.pos()
             self._start_pos = self.mapToScene(event.pos())
+            # 测试用 start
+            print("视口坐标：")
+            print(self.o_start_pos)
+            # print("缩放：")
+            # print(self.transform().m11())
+            # print(self.transform().m22())
+            print("场景坐标：")
+            print(self._start_pos)
+            # end
+
             event.accept()
         elif event.buttons() == QtCore.Qt.RightButton and flag:
             self._scene.removeItem(self._rect_item)
             rect = self._rect_item.mapRectToScene(self.o_rect)
             pixmap = self.scene().views()[0].grab(rect.toRect())
 
+            # 把截图变换回原本大小（场景坐标系）
+            transform = self.transform()
+            pixmap_in_scene = pixmap.transformed(QtGui.QTransform().scale(1 / transform.m11(), 1 / transform.m22()))
+
             filename = "sub_pic.jpg"
-            pixmap.save(filename)
+            pixmap_in_scene.save(filename)
             testimg = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
-            base64_data = ocr.image_to_base64(filename)
-            self.center = ef.fit_ellipse(testimg)
-            # print(self.center)
-            # self.detected_text = ocr.tencentOCR(base64_data)
-            # 重置矩形开始点和当前矩形
+            self.center_list = ef.fit_ellipse(testimg)
+            print("圆心：")
+            print(self.center_list)
+
+            if self.center_list is not None:
+                self.leftop = self._start_pos
+                self.rectSelected.emit()
+                # print(self.center)
+
             self._start_pos = None
             self._rect_item = None
-            self.rectSelected.emit()
             event.accept()
         else:
             super().mousePressEvent(event)
@@ -146,7 +132,7 @@ class CustomGraphicsView(QtWidgets.QGraphicsView):
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(1148, 688)
+        MainWindow.resize(1173, 768)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.horizontalLayout = QtWidgets.QHBoxLayout(self.centralwidget)
@@ -158,30 +144,54 @@ class Ui_MainWindow(object):
         self.horizontalLayout.addWidget(self.gV)
         spacerItem1 = QtWidgets.QSpacerItem(10, 20, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
         self.horizontalLayout.addItem(spacerItem1)
-        self.tW = QtWidgets.QTableWidget(self.centralwidget)
+        self.widget = QtWidgets.QWidget(self.centralwidget)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.widget.sizePolicy().hasHeightForWidth())
+        self.widget.setSizePolicy(sizePolicy)
+        self.widget.setObjectName("widget")
+        self.verticalLayout = QtWidgets.QVBoxLayout(self.widget)
+        self.verticalLayout.setContentsMargins(-1, 0, -1, 0)
+        self.verticalLayout.setObjectName("verticalLayout")
+        self.tW = QtWidgets.QTableWidget(self.widget)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.tW.sizePolicy().hasHeightForWidth())
         self.tW.setSizePolicy(sizePolicy)
         self.tW.setObjectName("tW")
-        self.tW.setColumnCount(0)
+        self.tW.setColumnCount(3)
         self.tW.setRowCount(0)
-        self.horizontalLayout.addWidget(self.tW)
+        item = QtWidgets.QTableWidgetItem()
+        self.tW.setHorizontalHeaderItem(0, item)
+        item = QtWidgets.QTableWidgetItem()
+        self.tW.setHorizontalHeaderItem(1, item)
+        item = QtWidgets.QTableWidgetItem()
+        self.tW.setHorizontalHeaderItem(2, item)
+        self.tW.horizontalHeader().setDefaultSectionSize(83)
+        self.verticalLayout.addWidget(self.tW)
+        self.horizontalLayout.addWidget(self.widget)
         spacerItem2 = QtWidgets.QSpacerItem(10, 10, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
         self.horizontalLayout.addItem(spacerItem2)
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(MainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 1148, 26))
+        self.menubar.setGeometry(QtCore.QRect(0, 0, 1173, 26))
         self.menubar.setObjectName("menubar")
         self.menuFile = QtWidgets.QMenu(self.menubar)
         self.menuFile.setObjectName("menuFile")
         MainWindow.setMenuBar(self.menubar)
+        self.statusBar = QtWidgets.QStatusBar(MainWindow)
+        self.statusBar.setObjectName("statusBar")
+        MainWindow.setStatusBar(self.statusBar)
         self.actionNew = QtWidgets.QAction(MainWindow)
         self.actionNew.setObjectName("actionNew")
         self.actionOpen = QtWidgets.QAction(MainWindow)
         self.actionOpen.setObjectName("actionOpen")
+        self.actionSave = QtWidgets.QAction(MainWindow)
+        self.actionSave.setObjectName("actionSave")
         self.menuFile.addAction(self.actionOpen)
+        self.menuFile.addAction(self.actionSave)
         self.menubar.addAction(self.menuFile.menuAction())
 
         self.retranslateUi(MainWindow)
@@ -190,6 +200,13 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
+        item = self.tW.horizontalHeaderItem(0)
+        item.setText(_translate("MainWindow", "点号"))
+        item = self.tW.horizontalHeaderItem(1)
+        item.setText(_translate("MainWindow", "x / pixel"))
+        item = self.tW.horizontalHeaderItem(2)
+        item.setText(_translate("MainWindow", "y / pixel"))
         self.menuFile.setTitle(_translate("MainWindow", "File"))
         self.actionNew.setText(_translate("MainWindow", "New"))
         self.actionOpen.setText(_translate("MainWindow", "Open"))
+        self.actionSave.setText(_translate("MainWindow", "Save"))

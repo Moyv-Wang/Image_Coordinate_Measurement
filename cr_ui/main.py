@@ -1,15 +1,19 @@
 import sys
+import csv
 
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 import cv2
-from PyQt5 import uic
+# from PyQt5 import uic
 
 import cr
+import tencent_ocr as ocr
 
 
 class MyDialog(QDialog):
+    confirm_sig = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -39,52 +43,87 @@ class MyDialog(QDialog):
         self.lineEdit.setObjectName("lineEdit")
         self.horizontalLayout.addWidget(self.lineEdit)
         self.label_2.setText("若标志点带有点号，程序会自动检测，若")
-        self.label_3.setText( "检测结果不正确请自行输入：")
-        self.label.setText( "点号：")
+        self.label_3.setText("检测结果不正确请自行输入：")
+        self.label.setText("点号：")
         self.confirmBtn = QPushButton(self)
-        self.confirmBtn.setGeometry(QRect(280, 140, 93, 28))
-        self.confirmBtn.setText("确定")
+        self.confirmBtn.setGeometry(QRect(180, 140, 93, 28))
         self.confirmBtn.setObjectName("confirmBtn")
-
-        self.horizontalLayout.addWidget(self.confirmBtn)
+        self.confirmBtn.setText("确定")
         self.confirmBtn.setDefault(True)  # 设置为默认按钮
-        self.confirmBtn.clicked.connect(self.accept)  # 点击按钮触发accept方法
 
-        # self.diaui = uic.loadUi("numDialog.ui")
-        # self.diaui.confirmBtn.setDefault(True)
-        # self.diaui.setWindowModality(Qt.ApplicationModal)
-        # self.diaui.confirmBtn.clicked.connect(self.accept)
+        self.cancelBtn = QPushButton(self)
+        self.cancelBtn.setGeometry(QRect(280, 140, 93, 28))
+        self.cancelBtn.setObjectName("cancelBtn")
+        self.cancelBtn.setText("取消")
 
-    # def handle_slot(self):
-    #     sender = self.sender()
-    #     text = sender.get_text()
-    #     self.diaui.lineEdit.setText(text)
-    #     self.diaui.exec_()
+        self.confirmBtn.clicked.connect(self.accept_record)  # 点击按钮触发accept方法
+        self.cancelBtn.clicked.connect(self.accept)
+        # self.confirmBtn.clicked.connect(lambda: self.confirm_btn_clicked.emit())
+
+    def accept_record(self):
+        self.confirm_sig.emit()
+        self.accept()
+
+    def popup(self):
+        self.confirmBtn.setDefault(True)
+        base64_data = ocr.image_to_base64("sub_pic.jpg")
+        detected_text = ocr.tencentOCR(base64_data)
+        self.lineEdit.setText(detected_text)
+        self.exec()
+        return
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.y = None
+        self.x = None
         self.pixmap = None
         self.ui = cr.Ui_MainWindow()
         self.ui.setupUi(self)
         self.ui.actionOpen.triggered.connect(self.openfile)
-        # self.scene = QGraphicsScene()
-        # self.ui.gV.setScene(self.scene)
-        # self.ui.gV.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.ui.actionSave.triggered.connect(self.export_table_to_text)
         self.ui.gV.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # 关闭垂直滚动条
         self.ui.gV.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # 关闭水平滚动条
         self.ui.gV.show()
 
         self.dialog = MyDialog()
-        self.ui.gV.rectSelected.connect(self.dialog.exec)
+        self.dialog.confirm_sig.connect(self.get_res)
+        self.ui.gV.rectSelected.connect(self.dialog.popup)
 
     def openfile(self):
         filename, filetype = QFileDialog.getOpenFileName(self, "open image files", "./", "Image files(*.jpg)")
         # print(filename + "null")
         if filename != "":
             self.ui.gV.set_image(filename)
+            self.ui.statusBar.showMessage("导入完成")
+
+    def get_res(self):
+        self.x, self.y = self.ui.gV.get_coordinate()
+        rowPosition = self.ui.tW.rowCount()
+        self.ui.tW.insertRow(rowPosition)
+
+        # 设置该行的每个单元格内容
+        num = self.dialog.lineEdit.text()
+        self.ui.tW.setItem(rowPosition, 0, QTableWidgetItem(num))
+        self.ui.tW.setItem(rowPosition, 1, QTableWidgetItem(str(self.x)))
+        self.ui.tW.setItem(rowPosition, 2, QTableWidgetItem(str(self.y)))
+
+    def export_table_to_text(self):
+        with open("res.csv", 'w') as file:
+            writer = csv.writer(file, delimiter=',')
+            writer.writerow(["点号", "x", "y"])
+            for row in range(self.ui.tW.rowCount()):
+                row_data = []
+                for column in range(self.ui.tW.columnCount()):
+                    item = self.ui.tW.item(row, column)
+                    if item is not None:
+                        row_data.append(item.text())
+                    else:
+                        row_data.append('')
+                writer.writerow(row_data)
+                self.ui.statusBar.showMessage("文件导出完成")
 
 
 if __name__ == '__main__':

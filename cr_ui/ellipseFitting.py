@@ -16,9 +16,11 @@ def fit_ellipse(testImg):
             continue
         # retval = cv2.fitEllipse(cnt)
         retval = cv2.fitEllipse(cnt)
-        if ((retval[1][0] < 40) and (retval[1][1] < 40)) or (
+        if ((retval[1][0] < 20) and (retval[1][1] < 20)) or (
                 (retval[1][0] > 1.15 * retval[1][1]) or (retval[1][1] > 1.15 * retval[1][0])):
             continue
+        print("retval")
+        print(retval)
         list.append(retval)
 
     if len(list) == 1:
@@ -29,6 +31,9 @@ def fit_ellipse(testImg):
         cv2.waitKey(1)
         time.sleep(2)
         cv2.destroyWindow("res")
+
         return list[0][0]
+    else:
+        return None
         # print(list)
         # cv2.circle(testImg, (int(retval[0][0]), int(retval[0][0])), 0, (0, 0, 255))
